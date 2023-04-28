@@ -7,7 +7,6 @@ package edu.wpi.first.math.estimator;
 import edu.wpi.first.math.MathSharedStore;
 import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.Matrix;
-import edu.wpi.first.math.Nat;
 import edu.wpi.first.math.VecBuilder;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
@@ -34,12 +33,10 @@ import java.util.Objects;
  * <p>{@link SwerveDrivePoseEstimator#addVisionMeasurement} can be called as infrequently as you
  * want; if you never call it, then this class will behave as regular encoder odometry.
  */
-public class SwerveDrivePoseEstimator {
+public class SwerveDrivePoseEstimator extends RobotPoseEstimator {
   private final SwerveDriveKinematics m_kinematics;
   private final SwerveDriveOdometry m_odometry;
-  private final Matrix<N3, N1> m_q = new Matrix<>(Nat.N3(), Nat.N1());
   private final int m_numModules;
-  private Matrix<N3, N3> m_visionK = new Matrix<>(Nat.N3(), Nat.N3());
 
   private static final double kBufferDuration = 1.5;
 
@@ -96,41 +93,9 @@ public class SwerveDrivePoseEstimator {
       Matrix<N3, N1> visionMeasurementStdDevs) {
     m_kinematics = kinematics;
     m_odometry = new SwerveDriveOdometry(kinematics, gyroAngle, modulePositions, initialPoseMeters);
-
-    for (int i = 0; i < 3; ++i) {
-      m_q.set(i, 0, stateStdDevs.get(i, 0) * stateStdDevs.get(i, 0));
-    }
-
     m_numModules = modulePositions.length;
 
     setVisionMeasurementStdDevs(visionMeasurementStdDevs);
-  }
-
-  /**
-   * Sets the pose estimator's trust of global measurements. This might be used to change trust in
-   * vision measurements after the autonomous period, or to change trust as distance to a vision
-   * target increases.
-   *
-   * @param visionMeasurementStdDevs Standard deviations of the vision measurements. Increase these
-   *     numbers to trust global measurements from vision less. This matrix is in the form [x, y,
-   *     theta]ᵀ, with units in meters and radians.
-   */
-  public void setVisionMeasurementStdDevs(Matrix<N3, N1> visionMeasurementStdDevs) {
-    var r = new double[3];
-    for (int i = 0; i < 3; ++i) {
-      r[i] = visionMeasurementStdDevs.get(i, 0) * visionMeasurementStdDevs.get(i, 0);
-    }
-
-    // Solve for closed form Kalman gain for continuous Kalman filter with A = 0
-    // and C = I. See wpimath/algorithms.md.
-    for (int row = 0; row < 3; ++row) {
-      if (m_q.get(row, 0) == 0.0) {
-        m_visionK.set(row, row, 0.0);
-      } else {
-        m_visionK.set(
-            row, row, m_q.get(row, 0) / (m_q.get(row, 0) + Math.sqrt(m_q.get(row, 0) * r[row])));
-      }
-    }
   }
 
   /**
@@ -150,11 +115,6 @@ public class SwerveDrivePoseEstimator {
     m_poseBuffer.clear();
   }
 
-  /**
-   * Gets the estimated robot pose.
-   *
-   * @return The estimated robot pose in meters.
-   */
   public Pose2d getEstimatedPosition() {
     return m_odometry.getPoseMeters();
   }
@@ -225,41 +185,6 @@ public class SwerveDrivePoseEstimator {
         m_poseBuffer.getInternalBuffer().tailMap(timestampSeconds).entrySet()) {
       updateWithTime(entry.getKey(), entry.getValue().gyroAngle, entry.getValue().modulePositions);
     }
-  }
-
-  /**
-   * Adds a vision measurement to the Kalman Filter. This will correct the odometry pose estimate
-   * while still accounting for measurement noise.
-   *
-   * <p>This method can be called as infrequently as you want, as long as you are calling {@link
-   * SwerveDrivePoseEstimator#update} every loop.
-   *
-   * <p>To promote stability of the pose estimate and make it robust to bad vision data, we
-   * recommend only adding vision measurements that are already within one meter or so of the
-   * current pose estimate.
-   *
-   * <p>Note that the vision measurement standard deviations passed into this method will continue
-   * to apply to future measurements until a subsequent call to {@link
-   * SwerveDrivePoseEstimator#setVisionMeasurementStdDevs(Matrix)} or this method.
-   *
-   * @param visionRobotPoseMeters The pose of the robot as measured by the vision camera.
-   * @param timestampSeconds The timestamp of the vision measurement in seconds. Note that if you
-   *     don't use your own time source by calling {@link
-   *     SwerveDrivePoseEstimator#updateWithTime(double,Rotation2d,SwerveModulePosition[])}, then
-   *     you must use a timestamp with an epoch since FPGA startup (i.e., the epoch of this
-   *     timestamp is the same epoch as {@link edu.wpi.first.wpilibj.Timer#getFPGATimestamp()}).
-   *     This means that you should use {@link edu.wpi.first.wpilibj.Timer#getFPGATimestamp()} as
-   *     your time source in this case.
-   * @param visionMeasurementStdDevs Standard deviations of the vision pose measurement (x position
-   *     in meters, y position in meters, and heading in radians). Increase these numbers to trust
-   *     the vision pose measurement less.
-   */
-  public void addVisionMeasurement(
-      Pose2d visionRobotPoseMeters,
-      double timestampSeconds,
-      Matrix<N3, N1> visionMeasurementStdDevs) {
-    setVisionMeasurementStdDevs(visionMeasurementStdDevs);
-    addVisionMeasurement(visionRobotPoseMeters, timestampSeconds);
   }
 
   /**

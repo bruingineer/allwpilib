@@ -7,7 +7,6 @@ package edu.wpi.first.math.estimator;
 import edu.wpi.first.math.MathSharedStore;
 import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.Matrix;
-import edu.wpi.first.math.Nat;
 import edu.wpi.first.math.VecBuilder;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
@@ -35,11 +34,9 @@ import java.util.Objects;
  * <p>{@link DifferentialDrivePoseEstimator#addVisionMeasurement} can be called as infrequently as
  * you want; if you never call it then this class will behave exactly like regular encoder odometry.
  */
-public class DifferentialDrivePoseEstimator {
+public class DifferentialDrivePoseEstimator extends RobotPoseEstimator {
   private final DifferentialDriveKinematics m_kinematics;
   private final DifferentialDriveOdometry m_odometry;
-  private final Matrix<N3, N1> m_q = new Matrix<>(Nat.N3(), Nat.N1());
-  private Matrix<N3, N3> m_visionK = new Matrix<>(Nat.N3(), Nat.N3());
 
   private static final double kBufferDuration = 1.5;
 
@@ -113,33 +110,6 @@ public class DifferentialDrivePoseEstimator {
   }
 
   /**
-   * Sets the pose estimator's trust of global measurements. This might be used to change trust in
-   * vision measurements after the autonomous period, or to change trust as distance to a vision
-   * target increases.
-   *
-   * @param visionMeasurementStdDevs Standard deviations of the vision measurements. Increase these
-   *     numbers to trust global measurements from vision less. This matrix is in the form [x, y,
-   *     theta]ᵀ, with units in meters and radians.
-   */
-  public void setVisionMeasurementStdDevs(Matrix<N3, N1> visionMeasurementStdDevs) {
-    var r = new double[3];
-    for (int i = 0; i < 3; ++i) {
-      r[i] = visionMeasurementStdDevs.get(i, 0) * visionMeasurementStdDevs.get(i, 0);
-    }
-
-    // Solve for closed form Kalman gain for continuous Kalman filter with A = 0
-    // and C = I. See wpimath/algorithms.md.
-    for (int row = 0; row < 3; ++row) {
-      if (m_q.get(row, 0) == 0.0) {
-        m_visionK.set(row, row, 0.0);
-      } else {
-        m_visionK.set(
-            row, row, m_q.get(row, 0) / (m_q.get(row, 0) + Math.sqrt(m_q.get(row, 0) * r[row])));
-      }
-    }
-  }
-
-  /**
    * Resets the robot's position on the field.
    *
    * <p>The gyroscope angle does not need to be reset here on the user's robot code. The library
@@ -160,11 +130,6 @@ public class DifferentialDrivePoseEstimator {
     m_poseBuffer.clear();
   }
 
-  /**
-   * Gets the estimated robot pose.
-   *
-   * @return The estimated robot pose in meters.
-   */
   public Pose2d getEstimatedPosition() {
     return m_odometry.getPoseMeters();
   }
